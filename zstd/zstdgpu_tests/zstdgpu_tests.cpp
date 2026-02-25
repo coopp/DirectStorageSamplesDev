@@ -249,11 +249,11 @@ std::string ParamNameGenerator(
 // Example <root_drive_letter>:\DSTESTPC_CONTENT\public
 static std::filesystem::path MakeContentPath(const std::string& filename, bool isInternal)
 {
-    const char* drives[3] = {"C:", "D:", "E:"};
-    std::filesystem::path contentPath;
+    const char* drives[3] = {"C:\\", "D:\\", "E:\\"};
     for (auto& drive : drives)
     {
-        contentPath = std::filesystem::path(drive) / "DSTESTPC_CONTENT" / (isInternal ? "internal" : "public") / filename;
+        std::filesystem::path contentPath =
+            std::filesystem::path(drive) / "DSTESTPC_CONTENT" / (isInternal ? "internal" : "public") / filename;
         if (std::filesystem::exists(contentPath))
         {
             return contentPath;

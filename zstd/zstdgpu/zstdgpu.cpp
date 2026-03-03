@@ -272,9 +272,8 @@ static void zstdgpu_ReCreate_SRTs(zstdgpu_SRTs & srts, ID3D12Device *device, con
     D3D12_SHADER_RESOURCE_VIEW_DESC SRV;
     D3D12_UNORDERED_ACCESS_VIEW_DESC UAV;
     const DXGI_FORMAT DXGI_FORMAT_uint8_t = DXGI_FORMAT_R8_UINT;
-    const DXGI_FORMAT DXGI_FORMAT_uint16_t = DXGI_FORMAT_R16_UINT;
+    //const DXGI_FORMAT DXGI_FORMAT_uint16_t = DXGI_FORMAT_R16_UINT;
     const DXGI_FORMAT DXGI_FORMAT_int16_t = DXGI_FORMAT_R16_SINT;
-    ZSTDGPU_UNUSED(DXGI_FORMAT_uint16_t);
 
     #define ZSTDGPU_PUSH_STRUCT_BUFFER(type, name, viewType) \
         d3d12aid_##viewType##_Create(cpuDest, device,                                                       \
@@ -358,14 +357,65 @@ static void zstdgpu_ReCreate_SRTs(zstdgpu_SRTs & srts, ID3D12Device *device, con
     ZSTDGPU_KERNEL(PrefixSum                                ,   L"Prefix Sum")                                                          \
     ZSTDGPU_KERNEL(UpdateDispatchArgs                       ,   L"Update Dispatch Args")
 
+typedef enum zstdgpu_CompiledShaderId
+{
+#define ZSTDGPU_KERNEL(name, desc) kzstdgpu_CompiledShaderId_##name,
+    ZSTDGPU_KERNEL_LIST()
+#undef ZSTDGPU_KERNEL
+    kzstdgpu_CompiledShaderId_Count,
+    kzstdgpu_CompiledShaderId_MaxInt = 0x7fffffff
+} zstdgpu_CompiledShaderId;
+
+typedef struct zstdgpu_CompiledShader
+{
+    const void    *code;
+    const uint32_t size;
+    const wchar_t *desc;
+} zstdgpu_CompiledShader;
+
+static const zstdgpu_CompiledShader kzstdgpu_CompiledShaders [] =
+{
+#define ZSTDGPU_KERNEL(name, desc) { g_ZstdGpu##name, sizeof(g_ZstdGpu##name), desc },
+    ZSTDGPU_KERNEL_LIST()
+#undef ZSTDGPU_KERNEL
+};
+
+#define ZSTDGPU_RUNTIME_KERNEL_LIST_SHARED()        \
+    ZSTDGPU_KERNEL(ComputeDestSequenceOffsets)      \
+    ZSTDGPU_KERNEL(ComputePrefixSum)                \
+    ZSTDGPU_KERNEL(DecodeHuffmanWeights)            \
+    ZSTDGPU_KERNEL(DecompressHuffmanWeights)        \
+    ZSTDGPU_KERNEL(FinaliseSequenceOffsets)         \
+    ZSTDGPU_KERNEL(GroupCompressedLiterals)         \
+    ZSTDGPU_KERNEL(InitFseTable)                    \
+    ZSTDGPU_KERNEL(InitHuffmanTable)                \
+    ZSTDGPU_KERNEL(InitResources)                   \
+    ZSTDGPU_KERNEL(MemsetMemcpy)                    \
+    ZSTDGPU_KERNEL(ParseCompressedBlocks)           \
+    ZSTDGPU_KERNEL(ParseFrames)                     \
+    ZSTDGPU_KERNEL(PrefixSequenceOffsets)           \
+    ZSTDGPU_KERNEL(PrefixSum)                       \
+    ZSTDGPU_KERNEL(UpdateDispatchArgs)
+
+#define ZSTDGPU_RUNTIME_KERNEL_LIST_SPECIALISED()   \
+    ZSTDGPU_KERNEL(DecompressLiterals)              \
+    ZSTDGPU_KERNEL(DecompressSequences)             \
+    ZSTDGPU_KERNEL(ExecuteSequences)
+
+#define ZSTDGPU_RUNTIME_KERNEL_LIST()           \
+    ZSTDGPU_RUNTIME_KERNEL_LIST_SHARED()        \
+    ZSTDGPU_RUNTIME_KERNEL_LIST_SPECIALISED()
+
 #define ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_0() \
     ZSTDGPU_KERNEL_SCOPE_X(InitResources_CountBlocks            , L"Init Resources"             )   \
     ZSTDGPU_KERNEL_SCOPE_X(ParseFrames_CountBlocks              , L"Parse Frames"               )   \
     ZSTDGPU_KERNEL_SCOPE_X(PrefixSum                            , L"Prefix Sums"                )
 
-#define ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1() \
+#define ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_ALL_BLOCKS() \
     ZSTDGPU_KERNEL_SCOPE_X(InitResources                        , L"Init Resources"             )   \
-    ZSTDGPU_KERNEL_SCOPE_X(ParseFrames                          , L"Parse Frames"               )   \
+    ZSTDGPU_KERNEL_SCOPE_X(ParseFrames                          , L"Parse Frames"               )
+
+#define ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_CMP_BLOCKS() \
     ZSTDGPU_KERNEL_SCOPE_X(ParseCompressedBlocks                , L"Parse Compressed Blocks"    )
 
 #define ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_2_CMP_BLOCKS() \
@@ -376,8 +426,7 @@ static void zstdgpu_ReCreate_SRTs(zstdgpu_SRTs & srts, ID3D12Device *device, con
     ZSTDGPU_KERNEL_SCOPE_X(DecompressHuffmanWeights             , L"Decompress Huffman Weights" )   \
     ZSTDGPU_KERNEL_SCOPE_X(DecodeHuffmanWeights                 , L"Decode Huffman Weights"     )   \
     ZSTDGPU_KERNEL_SCOPE_X(InitHuffmanTable                     , L"Init Huffman Table"         )   \
-    ZSTDGPU_KERNEL_SCOPE_X(DecompressLiterals                   , L"Decompress Literals"         )  \
-    ZSTDGPU_KERNEL_SCOPE_X(InitHuffmanTableAndDecompressLiterals, L"Init Huffman Table and Decompress Literals" )   \
+    ZSTDGPU_KERNEL_SCOPE_X(DecompressLiterals                   , L"Decompress Literals"        )   \
     ZSTDGPU_KERNEL_SCOPE_X(DecompressSequences                  , L"Decompress Sequences"       )   \
     ZSTDGPU_KERNEL_SCOPE_X(PrefixSequenceOffsets                , L"Propagate Sequence Offsets" )   \
     ZSTDGPU_KERNEL_SCOPE_X(FinaliseSequenceOffsets              , L"Finalise Sequence Offsets"  )   \
@@ -391,7 +440,8 @@ static void zstdgpu_ReCreate_SRTs(zstdgpu_SRTs & srts, ID3D12Device *device, con
 
 #define ZSTDGPU_KERNEL_SCOPE_LIST()                     \
     ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_0()                 \
-    ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1()                 \
+    ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_ALL_BLOCKS()      \
+    ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_CMP_BLOCKS()      \
     ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_2_CMP_BLOCKS()      \
     ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_2_RAW_RLE_BLOCKS()  \
     ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_2_ALL_BLOCKS()
@@ -401,12 +451,11 @@ struct zstdgpu_PersistentContextImpl
     void                    *thisMemoryBlock;
     ID3D12Device            *device;
     ID3D12CommandSignature  *dispatchCmdSig;
-    uint32_t                 minLaneCount;
-    uint32_t                 maxLaneCount;
 
-    #define ZSTDGPU_KERNEL(name, desc) d3d12aid_ComputeRsPs name;
-        ZSTDGPU_KERNEL_LIST()
+    #define ZSTDGPU_KERNEL(name) d3d12aid_ComputeRsPs name;
+        ZSTDGPU_RUNTIME_KERNEL_LIST()
     #undef ZSTDGPU_KERNEL
+    uint32_t                DecompressLiterals_LdsStoreCache_StreamsPerGroup;
 };
 
 enum zstdgpu_SetupInputsType
@@ -423,12 +472,9 @@ struct zstdgpu_PerRequestContextImpl
     ID3D12Device            *device;
     ID3D12CommandSignature  *dispatchCmdSig;
 
-    #define ZSTDGPU_KERNEL(name, desc) d3d12aid_ComputeRsPs name;
-        ZSTDGPU_KERNEL_LIST()
+    #define ZSTDGPU_KERNEL(name) d3d12aid_ComputeRsPs name;
+        ZSTDGPU_RUNTIME_KERNEL_LIST()
     #undef ZSTDGPU_KERNEL
-    d3d12aid_ComputeRsPs    ExecuteSequences;
-    d3d12aid_ComputeRsPs    DecompressSequences_LdsFseCache;
-    d3d12aid_ComputeRsPs    DecompressLiterals_LdsStoreCache;
     uint32_t                DecompressLiterals_LdsStoreCache_StreamsPerGroup;
 
     zstdgpu_SRTs            srts;
@@ -512,18 +558,69 @@ ZSTDGPU_ENUM(Status) zstdgpu_CreatePersistentContext(zstdgpu_PersistentContext *
         dispatchCmdSigDesc.NodeMask             = 0x1;
         D3D12AID_CHECK(device->CreateCommandSignature(&dispatchCmdSigDesc, NULL, D3D12AID_IID_PPV_ARGS(&context->dispatchCmdSig)));
 
+        #define ZSTDGPU_KERNEL_GET(name) &kzstdgpu_CompiledShaders[kzstdgpu_CompiledShaderId_##name];
+        #define ZSTDGPU_KERNEL_MAP(runtime, compiled) shader##runtime = ZSTDGPU_KERNEL_GET(compiled)
+
+        #define ZSTDGPU_KERNEL(name) const zstdgpu_CompiledShader *shader##name = ZSTDGPU_KERNEL_GET(name);
+            ZSTDGPU_RUNTIME_KERNEL_LIST_SHARED()
+        #undef ZSTDGPU_KERNEL
+
+        #define ZSTDGPU_KERNEL(name) const zstdgpu_CompiledShader *shader##name = NULL;
+            ZSTDGPU_RUNTIME_KERNEL_LIST_SPECIALISED()
+        #undef ZSTDGPU_KERNEL
+
+#if defined(_GAMING_XBOX_SCARLETT)
+        ZSTDGPU_KERNEL_MAP(DecompressLiterals, DecompressLiterals_LdsStoreCache32_16);
+        context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
+        ZSTDGPU_KERNEL_MAP(DecompressSequences, DecompressSequences_LdsFseCache32);
+        ZSTDGPU_KERNEL_MAP(ExecuteSequences, ExecuteSequences64);
+#else
         D3D12_FEATURE_DATA_D3D12_OPTIONS1 featureOptions1;
         D3D12AID_CHECK(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, ZSTDGPU_WARN_DISABLE_MSVC(6001, &featureOptions1), sizeof(featureOptions1)));
-        context->minLaneCount = featureOptions1.WaveLaneCountMin;
-        context->maxLaneCount = featureOptions1.WaveLaneCountMax;
+
+        const LUID luid = device->GetAdapterLuid();
+
+        IDXGIAdapter* adapter = NULL;
+        IDXGIFactory4 *factory = NULL;
+        CreateDXGIFactory2(0, D3D12AID_IID_PPV_ARGS(&factory));
+        D3D12AID_CHECK(factory->EnumAdapterByLuid(luid, D3D12AID_IID_PPV_ARGS(&adapter)));
+        D3D12AID_SAFE_RELEASE(factory);
+
+        DXGI_ADAPTER_DESC desc;
+        D3D12AID_CHECK(adapter->GetDesc(&desc));
+        D3D12AID_SAFE_RELEASE(adapter);
+
+        if (desc.VendorId == 0x1002)
+        {
+            ZSTDGPU_KERNEL_MAP(DecompressLiterals, DecompressLiterals_LdsStoreCache64_16);
+            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
+            ZSTDGPU_KERNEL_MAP(DecompressSequences, DecompressSequences_Scalar32);
+            ZSTDGPU_KERNEL_MAP(ExecuteSequences, ExecuteSequences64);
+        }
+        else if (featureOptions1.WaveLaneCountMax == 128)
+        {
+            ZSTDGPU_KERNEL_MAP(DecompressLiterals, DecompressLiterals_LdsStoreCache128_8);
+            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 8;
+            ZSTDGPU_KERNEL_MAP(DecompressSequences, DecompressSequences_LdsFseCache128);
+            ZSTDGPU_KERNEL_MAP(ExecuteSequences, ExecuteSequences128);
+        }
+        else //if (desc.VendorId == 0x10de || desc.VendorId == 0x8086 || featureOptions1.WaveLaneCountMax == 32)
+        {
+            ZSTDGPU_KERNEL_MAP(DecompressLiterals, DecompressLiterals_LdsStoreCache32_16);
+            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
+            ZSTDGPU_KERNEL_MAP(DecompressSequences, DecompressSequences_LdsFseCache32);
+            ZSTDGPU_KERNEL_MAP(ExecuteSequences, ExecuteSequences32);
+        }
+#endif
+        #undef ZSTDGPU_KERNEL_GET
+        #undef ZSTDGPU_KERNEL_MAP
 
         /** NOTE(pamartis): generate PipelineState / RootSignature initialisation through macro list */
-        #define ZSTDGPU_KERNEL(name, desc) \
-            d3d12aid_ComputeRsPs_Create(&context->name, device, g_ZstdGpu##name, sizeof(g_ZstdGpu##name));\
-            context->name.rs->SetName(desc);\
-            context->name.ps->SetName(desc);
-
-            ZSTDGPU_KERNEL_LIST()
+        #define ZSTDGPU_KERNEL(name) \
+            d3d12aid_ComputeRsPs_Create(&context->name, device, shader##name->code, shader##name->size);\
+            context->name.rs->SetName(shader##name->desc);\
+            context->name.ps->SetName(shader##name->desc);
+            ZSTDGPU_RUNTIME_KERNEL_LIST()
         #undef ZSTDGPU_KERNEL
 
         *outPersistentContext = context;
@@ -540,8 +637,8 @@ ZSTDGPU_ENUM(Status) zstdgpu_DestroyPersistentContext(void **outMemoryBlock, uin
 
     if (proceed > 0)
     {
-        #define ZSTDGPU_KERNEL(name, desc) d3d12aid_ComputeRsPs_Release(&inPersistentContext->name);
-            ZSTDGPU_KERNEL_LIST()
+        #define ZSTDGPU_KERNEL(name) d3d12aid_ComputeRsPs_Release(&inPersistentContext->name);
+            ZSTDGPU_RUNTIME_KERNEL_LIST()
         #undef ZSTDGPU_KERNEL
 
         D3D12AID_SAFE_RELEASE(inPersistentContext->dispatchCmdSig);
@@ -582,48 +679,13 @@ ZSTDGPU_ENUM(Status) zstdgpu_CreatePerRequestContext(zstdgpu_PerRequestContext *
         context->dispatchCmdSig->AddRef();
 
         /** NOTE(pamartis): generate PipelineState / RootSignature initialisation through macro list */
-        #define ZSTDGPU_KERNEL(name, desc)          \
+        #define ZSTDGPU_KERNEL(name)                \
             context->name = persistentContext->name;\
             context->name.rs->AddRef();             \
             context->name.ps->AddRef();
-            ZSTDGPU_KERNEL_LIST()
+            ZSTDGPU_RUNTIME_KERNEL_LIST()
         #undef ZSTDGPU_KERNEL
-#ifdef _GAMING_XBOX_SCARLETT
-        context->ExecuteSequences = context->ExecuteSequences64;
-        context->DecompressSequences_LdsFseCache = context->DecompressSequences_LdsFseCache32;
-        context->DecompressLiterals_LdsStoreCache = context->DecompressLiterals_LdsStoreCache32_16;
-        context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
-#else
-        if (persistentContext->maxLaneCount == 128)
-        {
-            context->ExecuteSequences = context->ExecuteSequences128;
-            context->DecompressSequences_LdsFseCache = context->DecompressSequences_LdsFseCache128;
-            context->DecompressLiterals_LdsStoreCache = context->DecompressLiterals_LdsStoreCache128_8;
-            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 8;
-        }
-        else if (persistentContext->maxLaneCount == 64)
-        {
-            context->ExecuteSequences = context->ExecuteSequences64;
-            context->DecompressSequences_LdsFseCache = context->DecompressSequences_LdsFseCache64;
-            context->DecompressLiterals_LdsStoreCache = context->DecompressLiterals_LdsStoreCache64_16;
-            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
-        }
-        else
-        {
-            context->ExecuteSequences = context->ExecuteSequences32;
-            context->DecompressSequences_LdsFseCache = context->DecompressSequences_LdsFseCache32;
-            context->DecompressLiterals_LdsStoreCache = context->DecompressLiterals_LdsStoreCache32_16;
-            context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = 16;
-        }
-#endif
-        context->ExecuteSequences.rs->AddRef();
-        context->ExecuteSequences.ps->AddRef();
-
-        context->DecompressSequences_LdsFseCache.rs->AddRef();
-        context->DecompressSequences_LdsFseCache.ps->AddRef();
-
-        context->DecompressLiterals_LdsStoreCache.rs->AddRef();
-        context->DecompressLiterals_LdsStoreCache.ps->AddRef();
+        context->DecompressLiterals_LdsStoreCache_StreamsPerGroup = persistentContext->DecompressLiterals_LdsStoreCache_StreamsPerGroup;
 
         context->srts.heap = NULL;
         context->srts.heapOffset = 0;
@@ -687,11 +749,8 @@ ZSTDGPU_ENUM(Status) zstdgpu_DestroyPerRequestContext(void **outMemoryBlock, uin
 
         D3D12AID_SAFE_RELEASE(inPerRequestContext->srts.heap);
 
-        d3d12aid_ComputeRsPs_Release(&inPerRequestContext->ExecuteSequences);
-        d3d12aid_ComputeRsPs_Release(&inPerRequestContext->DecompressSequences_LdsFseCache);
-        d3d12aid_ComputeRsPs_Release(&inPerRequestContext->DecompressLiterals_LdsStoreCache);
-        #define ZSTDGPU_KERNEL(name, desc) d3d12aid_ComputeRsPs_Release(&inPerRequestContext->name);
-            ZSTDGPU_KERNEL_LIST()
+        #define ZSTDGPU_KERNEL(name) d3d12aid_ComputeRsPs_Release(&inPerRequestContext->name);
+            ZSTDGPU_RUNTIME_KERNEL_LIST()
         #undef ZSTDGPU_KERNEL
 
         D3D12AID_SAFE_RELEASE(inPerRequestContext->dispatchCmdSig);
@@ -1441,6 +1500,11 @@ void zstdgpu_SubmitStage1(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
         else
         {
             // last written by [Parse Frames :: Collect Blocks]
+            // next read by [Readback Counters :: After Block Parse] and updated by [Update Dispatch Args]
+            setResourceUavToSrvSync(barriers, bc + 0, req->resData.gpuOnly.Counters);
+            bc += 1;
+
+            // last written by [Parse Frames :: Collect Blocks]
             // next updated by [Prefix Block Sizes]
             setResourceUavSync(barriers, bc + 0, req->resData.gpuOnly.BlockSizePrefix);
             bc += 1;
@@ -1508,7 +1572,7 @@ void zstdgpu_SubmitStage1(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
         PIXEndEvent(cmdList);
     }
     {
-        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"Readback Counters :: After Block Parse");
+        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Readback Counters :: After Block Parse]");
         zstdgpu_PushReadback(Counters);
         PIXEndEvent(cmdList);
     }
@@ -1755,7 +1819,6 @@ void zstdgpu_SubmitStage2(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
 
     if (req->zstdCmpBlockCount > 0)
     {
-#if 0
         PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Decompress Literals]");
         BIND_RS_PS_SRT(DecompressLiterals);
         cmdList->SetComputeRoot32BitConstant(1, req->zstdCmpBlockCount, 0);
@@ -1765,39 +1828,13 @@ void zstdgpu_SubmitStage2(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
             cmdList->ExecuteIndirect(req->dispatchCmdSig, 1, argBuf, kzstdgpu_CounterIndex_DecompressLiteralsGroups * sizeof(uint32_t), NULL, 0);
         );
         PIXEndEvent(cmdList);
-#else
-        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Decompress Literals (LDS Store Cache)]");
-        d3d12aid_ComputeRsPs_Set(&req->DecompressLiterals_LdsStoreCache, cmdList);
-        cmdList->SetDescriptorHeaps(1, &req->srts.heap);
-        cmdList->SetComputeRootDescriptorTable(0, req->srts.DecompressLiteralsGpuHandle);
-        cmdList->SetComputeRoot32BitConstant(1, req->zstdCmpBlockCount, 0);
-
-        ID3D12Resource* argBuf = req->resData.gpuOnly.Counters;
-        ZSTDGPU_KERNEL_SCOPE(DecompressLiterals, cmdList,
-            cmdList->ExecuteIndirect(req->dispatchCmdSig, 1, argBuf, kzstdgpu_CounterIndex_DecompressLiteralsGroups * sizeof(uint32_t), NULL, 0);
-        );
-        PIXEndEvent(cmdList);
-#endif
-    }
-
-    if (req->zstdCmpBlockCount > 0)
-    {
-        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Init Huffman Table and Decompress Literals]");
-        BIND_RS_PS_SRT(InitHuffmanTableAndDecompressLiterals);
-        cmdList->SetComputeRoot32BitConstant(1, req->zstdCmpBlockCount, 0);
-
-        //ID3D12Resource* argBuf = req->resData.gpuOnly.Counters;
-        ZSTDGPU_KERNEL_SCOPE(InitHuffmanTableAndDecompressLiterals, cmdList,
-            //cmdList->ExecuteIndirect(req->dispatchCmdSig, 1, argBuf, kzstdgpu_CounterIndex_DecompressLiteralsGroups * sizeof(uint32_t), NULL, 0);
-        );
-        PIXEndEvent(cmdList);
     }
 
     // NOTE(pamartis): (can run in parallel with FSE-compressed Huffman Weight Decompression, right after FSE table initialisation)
     if (req->zstdCmpBlockCount > 0)
     {
         PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Decompress Sequences]");
-        d3d12aid_ComputeRsPs_Set(&req->DecompressSequences_LdsFseCache, cmdList);
+        d3d12aid_ComputeRsPs_Set(&req->DecompressSequences, cmdList);
         cmdList->SetDescriptorHeaps(1, &req->srts.heap);
         cmdList->SetComputeRootDescriptorTable(0, req->srts.DecompressSequencesGpuHandle);
 
@@ -1987,6 +2024,14 @@ void zstdgpu_SubmitStage2(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
         );
         PIXEndEvent(cmdList);
     }
+    if (req->zstdCmpBlockCount > 0)
+    {
+        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"Barrier with Resources for [Readback Counters :: After Block Decompression]");
+        D3D12_RESOURCE_BARRIER barriers[1];
+        setResourceUavToSrvSync(barriers, 0, req->resData.gpuOnly.Counters);
+        cmdList->ResourceBarrier(_countof(barriers), barriers);
+        PIXEndEvent(cmdList);
+    }
     if (0) /** IMPORTANT: requires DecompressedSequencesMLen to contain inclusive prefix of total sequence sizes */
     {
         PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Compute Dest Sequence Offsets]");
@@ -1996,6 +2041,12 @@ void zstdgpu_SubmitStage2(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
 
         PIXEndEvent(cmdList);
     }
+    if (req->zstdCmpBlockCount > 0) /* Readback for Counters is only needed if the number of compressed blocks > 0 because Counters are updated during Seqeunce Execution */
+    {
+        PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Readback Counters :: After Block Decompression]");
+        zstdgpu_PushReadback(Counters);
+        PIXEndEvent(cmdList);
+    }
 }
 
 ZSTDGPU_API void zstdgpu_ReadbackGpuResults(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandList *cmdList)
@@ -2003,7 +2054,7 @@ ZSTDGPU_API void zstdgpu_ReadbackGpuResults(zstdgpu_PerRequestContext req, ID3D1
     // NOTE(pamartis): these are required to make sure D3D12 validation doesn't complain about state mismatch when
     // Read-only resource from the last stage get a NON_PS_RESOURCE state as a result of promotion from COMMON state
     // and then used as COPY_SOURCE for debug readback
-    D3D12_RESOURCE_BARRIER barriers[14];
+    D3D12_RESOURCE_BARRIER barriers[13];
     uint32_t bc = 0;
     setResourceState(barriers, 0, req->resData.gpuOnly.PerFrameBlockCountCMP, NON_PIXEL_SHADER_RESOURCE, COPY_SOURCE);
     setResourceState(barriers, 1, req->resData.gpuOnly.PerFrameBlockCountAll, NON_PIXEL_SHADER_RESOURCE, COPY_SOURCE);
@@ -2015,8 +2066,7 @@ ZSTDGPU_API void zstdgpu_ReadbackGpuResults(zstdgpu_PerRequestContext req, ID3D1
     {
         setResourceState(barriers, bc + 0, req->resData.gpuOnly.GlobalBlockIndexPerCmpBlock, NON_PIXEL_SHADER_RESOURCE, COPY_SOURCE);
         setResourceState(barriers, bc + 1, req->resData.gpuOnly.PerSeqStreamSeqStart, NON_PIXEL_SHADER_RESOURCE, COPY_SOURCE);
-        setResourceUavToSrvCopyIndirectSync(barriers, bc + 2, req->resData.gpuOnly.Counters);
-        bc += 3;
+        bc += 2;
     }
     if (req->zstdRawBlockCount > 0)
     {
@@ -2070,7 +2120,11 @@ ZSTDGPU_API void zstdgpu_RetrieveTimestamps(const wchar_t **outTimestampScopeNam
     }
     else if (stageIndex == 1)
     {
-        timestampScopeCountPerStage += 0 ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1();
+        timestampScopeCountPerStage += 0 ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_ALL_BLOCKS();
+        if (req->zstdCmpBlockCount > 0)
+        {
+            timestampScopeCountPerStage += 0 ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_CMP_BLOCKS();
+        }
     }
     else if (stageIndex == 2)
     {
@@ -2099,7 +2153,11 @@ ZSTDGPU_API void zstdgpu_RetrieveTimestamps(const wchar_t **outTimestampScopeNam
         }
         else if (stageIndex == 1)
         {
-            ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1()
+            ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_ALL_BLOCKS()
+            if (req->zstdCmpBlockCount > 0)
+            {
+                ZSTDGPU_KERNEL_SCOPE_LIST_STAGE_1_CMP_BLOCKS();
+            }
         }
         else if (stageIndex == 2)
         {

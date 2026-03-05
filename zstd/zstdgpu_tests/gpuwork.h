@@ -38,6 +38,11 @@ class GpuWork
 public:
     GpuWork(ID3D12Device* device, const wchar_t* name);
 
+    HRESULT GetDeviceRemovedReason() const
+    {
+        return m_device->GetDeviceRemovedReason();
+    }
+
 protected:
     com_ptr<ID3D12Device5> m_device;
     com_ptr<ID3D12CommandQueue> m_commandQueue;

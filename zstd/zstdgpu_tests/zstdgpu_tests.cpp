@@ -50,7 +50,7 @@ static std::vector<uint8_t> DecompressFrame(uint8_t* frameData, size_t frameData
     if (uncompressedSize == (size_t)-1)
     {
         // Uncompressed size is not available in the frame header, which may be the case for some frames. In this case,
-        // we cannot pre-allocate a buffer for decompressed data.
+        // we use a default size to pre-allocate a buffer for decompressed data.
         uncompressedSize = MAX_FRAME_SIZE;
     }
     std::vector<uint8_t> decompressedData(uncompressedSize);
@@ -142,8 +142,7 @@ struct ZstFileInfo
     Frames ReferenceDecompressedFrames;
 };
 
-// Loads a .zst file and computes necessary information for testing, including frame offsets/sizes and reference
-// decompressed frames.
+// Loads a .zst file and computes necessary information for testing.
 ZstFileInfo LoadZstFile(std::filesystem::path zstFilePath)
 {
     ZstFileInfo info{};
@@ -173,7 +172,8 @@ static void SaveDecompressedFrames(
     }
 }
 
-// This helper allows tests to log formatted messages to the test output when a failure occurs.
+// Logs formatted failure messages for a test.  Calling this method will cause the current
+// test to be reported as failed.
 void GTEST_LOG_FAILURE_MESSAGE(_Printf_format_string_ const char* const fmt, ...)
 {
     va_list vaArgs;
@@ -198,12 +198,11 @@ void GTEST_LOG_FAILURE_MESSAGE(_Printf_format_string_ const char* const fmt, ...
     GTEST_NONFATAL_FAILURE_(item.c_str());
 }
 
-// Compares the decompressed frames with reference decompressed frames to validate correctness of GPU decompression
-// results.
-void ValidateUncompressedFrames(ZstFileInfo& fileInfo, Frames& decompressedFrames)
+bool ValidateUncompressedFrames(ZstFileInfo& fileInfo, Frames& decompressedFrames)
 {
-    // The total number of frames decompressed in the target zst must match
-    // the expected number of frames in the reference data.
+    bool validationPassed = true;
+    // The total number of frames decompressed must match the expected number
+    // of frames in the reference data.
     if (decompressedFrames.size() != fileInfo.ReferenceDecompressedFrames.size())
     {
         GTEST_LOG_FAILURE_MESSAGE(
@@ -211,10 +210,10 @@ void ValidateUncompressedFrames(ZstFileInfo& fileInfo, Frames& decompressedFrame
             fileInfo.ZSTFilePath.string().c_str(),
             fileInfo.ReferenceDecompressedFrames.size(),
             decompressedFrames.size());
-        return; // avoid further processing which may cause out of bounds access
+        return false; // avoid further processing which may cause out of bounds access
     }
 
-    // The decompressed content in the target zst must match the expected content in the reference data.
+    // The decompressed content must match the reference data.
     for (size_t frameIndex = 0; frameIndex < decompressedFrames.size(); ++frameIndex)
     {
         auto& actual = decompressedFrames[frameIndex];
@@ -226,8 +225,11 @@ void ValidateUncompressedFrames(ZstFileInfo& fileInfo, Frames& decompressedFrame
                 "Decompressed frame content mismatch found in '%s' at frame index %zu",
                 fileInfo.ZSTFilePath.string().c_str(),
                 frameIndex);
+            validationPassed = false;
         }
     }
+
+    return validationPassed;
 }
 
 static std::filesystem::path FindFirstContentPath(bool isInternal)
@@ -246,8 +248,9 @@ static std::filesystem::path FindFirstContentPath(bool isInternal)
     return {};
 }
 
-// File paths containing "skip" will be skipped in testing. This allows test iterations to be easily disabled by
-// renaming
+// File paths containing "skip" will be skipped in testing.
+// This allows test iterations to be easily disabled by renaming
+// the files or directories.
 static bool SkipFile(const std::filesystem::path& filePath)
 {
     std::string pathStr = filePath.string();
@@ -326,7 +329,10 @@ struct ZstdDecompressionTests : public ::testing::Test
 
                 auto decompressedFrames =
                     gpuWork->Decompress(zstFileData.FrameDataAligned, zstFileData.FrameOffsetsAndSizes);
-                ValidateUncompressedFrames(zstFileData, decompressedFrames);
+                if (!ValidateUncompressedFrames(zstFileData, decompressedFrames))
+                {
+                    filesFailed++;
+                }
             }
             catch (...)
             {

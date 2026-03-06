@@ -281,6 +281,21 @@ struct ZstdDecompressionTests : public ::testing::Test
         {
             if (entry.is_regular_file() && entry.path().extension() == ".zst")
             {
+                // Convert path to string and lowercase for substring search
+                // to see if we should skip the file.
+                std::string pathStr = entry.path().string();
+                std::transform(
+                    pathStr.begin(),
+                    pathStr.end(),
+                    pathStr.begin(),
+                    [](unsigned char c) { return std::tolower(c); });
+
+                // Skip if "skip" appears anywhere in the path
+                if (pathStr.find("skip") != std::string::npos)
+                {
+                    continue; // Ignore this entry
+                }
+
                 zstFiles.push_back(entry.path());
             }
         }

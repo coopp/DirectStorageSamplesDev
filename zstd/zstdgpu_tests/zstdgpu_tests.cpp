@@ -8,7 +8,6 @@
  */
 
 #include "adapters.h"
-#include "buffers.h"
 #include "gpuwork.h"
 
 #include <gtest/gtest.h>

@@ -235,7 +235,6 @@
       <AdditionalOptions>/wd4244 /wd4267 /wd4334 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="adapters.cpp" />
-    <ClCompile Include="buffers.cpp" />
     <ClCompile Include="gpuwork.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="libzstdgpu.cpp" />
@@ -254,7 +253,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="adapters.h" />
-    <ClInclude Include="buffers.h" />
     <ClInclude Include="gpuwork.h" />
     <ClInclude Include="libzstdgpu.h" />
   </ItemGroup>

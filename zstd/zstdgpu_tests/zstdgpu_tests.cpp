@@ -110,7 +110,9 @@ static OffsetsAndSizes ComputeOffsetsAndSizes(const std::vector<uint8_t>& aligne
     for (uint32_t i = 0; i < fbInfo.frameCount; ++i)
     {
         // Handle cases where the uncompressed size is not available from the frame header. In this case, we need to
-        // perform a CPU decompression of the frame
+        // perform a CPU decompression of the frame. This is pretty expensive and currently the
+        // uncompressed data is thrown away after we get the size. In the future, we may want to optimize this by
+        // caching the decompressed data for frames without uncompressed size.
         if (zstdFrameInfos[i].uncompSize == 0)
         {
             auto decompressedFrame = DecompressFrame(
@@ -128,7 +130,6 @@ static OffsetsAndSizes ComputeOffsetsAndSizes(const std::vector<uint8_t>& aligne
         vcnt += zstdFrameInfos[i].uncompSize != 0 ? 1 : 0;
     }
     offsetsAndSizes.UnCompressedFramesMemorySizeInBytes = offs;
-    // EXPECT_EQ(fbInfo.frameCount, vcnt); // All frames should have valid uncompressed size.
 
     return offsetsAndSizes;
 }
@@ -246,6 +247,19 @@ static std::filesystem::path FindFirstContentPath(bool isInternal)
     return {};
 }
 
+// File paths containing "skip" will be skipped in testing. This allows test iterations to be easily disabled by
+// renaming
+static bool SkipFile(const std::filesystem::path& filePath)
+{
+    std::string pathStr = filePath.string();
+    std::transform(
+        pathStr.begin(),
+        pathStr.end(),
+        pathStr.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    return pathStr.find("skip") != std::string::npos;
+}
+
 // #define ENABLE_GPU_VALIDATION
 struct ZstdDecompressionTests : public ::testing::Test
 {
@@ -279,23 +293,8 @@ struct ZstdDecompressionTests : public ::testing::Test
         std::vector<std::filesystem::path> zstFiles;
         for (auto& entry : std::filesystem::recursive_directory_iterator(contentPath))
         {
-            if (entry.is_regular_file() && entry.path().extension() == ".zst")
+            if (entry.is_regular_file() && entry.path().extension() == ".zst" && !SkipFile(entry.path()))
             {
-                // Convert path to string and lowercase for substring search
-                // to see if we should skip the file.
-                std::string pathStr = entry.path().string();
-                std::transform(
-                    pathStr.begin(),
-                    pathStr.end(),
-                    pathStr.begin(),
-                    [](unsigned char c) { return std::tolower(c); });
-
-                // Skip if "skip" appears anywhere in the path
-                if (pathStr.find("skip") != std::string::npos)
-                {
-                    continue; // Ignore this entry
-                }
-
                 zstFiles.push_back(entry.path());
             }
         }
@@ -308,7 +307,6 @@ struct ZstdDecompressionTests : public ::testing::Test
         }
 
         size_t totalFiles = zstFiles.size();
-        size_t filesWithNoFrameData = 0;
         size_t filesFailed = 0;
         std::vector<std::filesystem::path> filePathsWithNoFrameData;
 
@@ -324,7 +322,6 @@ struct ZstdDecompressionTests : public ::testing::Test
                 if (!zstFileData.FrameOffsetsAndSizes.UnCompressedFramesMemorySizeInBytes)
                 {
                     filePathsWithNoFrameData.push_back(zstfile);
-                    filesWithNoFrameData++;
                     continue;
                 }
 
@@ -348,6 +345,12 @@ struct ZstdDecompressionTests : public ::testing::Test
                         zstfile.string().c_str());
                 }
                 filesFailed++;
+
+                GTEST_LOG_FAILURE_MESSAGE(
+                    "SUMMARY: %zu files failed so far with TDR or exceptions, and %zu files detected with no frame data out of a total of %zu files.",
+                    filesFailed,
+                    filePathsWithNoFrameData.size(),
+                    totalFiles);
             }
         }
 
@@ -355,9 +358,9 @@ struct ZstdDecompressionTests : public ::testing::Test
         {
             GTEST_LOG_FAILURE_MESSAGE(
                 "Test completed with %zu files passed, %zu files failed with TDR or exceptions, and %zu files with no frame data out of a total of %zu files.",
-                (totalFiles - (filesFailed + filesWithNoFrameData)),
+                (totalFiles - (filesFailed + filePathsWithNoFrameData.size())),
                 filesFailed,
-                filesWithNoFrameData,
+                filePathsWithNoFrameData.size(),
                 totalFiles);
         }
     }

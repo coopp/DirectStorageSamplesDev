@@ -429,7 +429,13 @@ static const uint32_t kzstdgpu_TgSizeX_ExecuteSequences = 32;
 #endif
 
 #define ZSTDGPU_TG_COUNT(elemCount, tgSize) (((elemCount) + (tgSize) - 1) / (tgSize))
-#define ZSTDGPU_TG_MULTIPLE(elemCount, tgSize) (((elemCount) + (tgSize) - 1) & ~(tgSize - 1))
+
+static inline uint32_t zstdgpu_AlignUp(uint32_t offset, uint32_t alignment)
+{
+    ZSTDGPU_ASSERT(0 == (alignment & (alignment - 1)));
+    const uint32_t alignmentBits = alignment - 1;
+    return (offset + alignmentBits) & ~alignmentBits;
+}
 
 #ifdef __hlsl_dx_compiler
 #   define ZSTDGPU_FOR_WORK_ITEMS(workItemId, workItemCount, groupThreadId, groupThreadCount)   \
@@ -890,9 +896,10 @@ static inline void zstdgpu_Forward_BitBuffer_Skip(ZSTDGPU_PARAM_INOUT(zstdgpu_Fo
     ZSTDGPU_ASSERT(inoutBuffer.datasz >= zstdgpu_Forward_BitBuffer_GetByteOffset(inoutBuffer) + bytecnt);
 
 #if 1
-    if (inoutBuffer.bitcnt < (bytecnt << 3))
+    const uint32_t leftbytecnt = inoutBuffer.bitcnt >> 3;
+    ZSTDGPU_BRANCH if (leftbytecnt < bytecnt)
     {
-        bytecnt -= inoutBuffer.bitcnt >> 3;
+        bytecnt -= leftbytecnt;
         zstdgpu_Forward_BitBuffer_Pop(inoutBuffer, inoutBuffer.bitcnt);
 
         inoutBuffer.offset += bytecnt >> 2;

@@ -334,13 +334,13 @@ static void zstdgpu_ReCreate_SRTs(zstdgpu_SRTs & srts, ID3D12Device *device, con
     ZSTDGPU_KERNEL(DecompressLiterals_LdsStoreCache32_32    ,   L"Decompress Literals (LDS Store Cache= 32 Dwords, Stream Count=32)")   \
     ZSTDGPU_KERNEL(DecompressLiterals_LdsStoreCache32_16    ,   L"Decompress Literals (LDS Store Cache= 32 Dwords, Stream Count=16)")   \
     ZSTDGPU_KERNEL(DecompressLiterals_LdsStoreCache32_8     ,   L"Decompress Literals (LDS Store Cache= 32 Dwords, Stream Count= 8)")   \
-    ZSTDGPU_KERNEL(DecompressSequences                      ,   L"Decompress Sequences")                                                \
     ZSTDGPU_KERNEL(DecompressSequences_LdsFseCache128       ,   L"Decompress Sequences (LDS FSE Cache, TG Size= 128)")                  \
     ZSTDGPU_KERNEL(DecompressSequences_LdsFseCache64        ,   L"Decompress Sequences (LDS FSE Cache, TG Size=  64)")                  \
     ZSTDGPU_KERNEL(DecompressSequences_LdsFseCache32        ,   L"Decompress Sequences (LDS FSE Cache, TG Size=  32)")                  \
     ZSTDGPU_KERNEL(DecompressSequences_Scalar128            ,   L"Decompress Sequences (Scalar, TG Size= 128)")                         \
     ZSTDGPU_KERNEL(DecompressSequences_Scalar64             ,   L"Decompress Sequences (Scalar, TG Size=  64)")                         \
     ZSTDGPU_KERNEL(DecompressSequences_Scalar32             ,   L"Decompress Sequences (Scalar, TG Size=  32)")                         \
+    ZSTDGPU_KERNEL(DecompressSequences                      ,   L"Decompress Sequences (Stream per Thread, TG Size = 32")               \
     ZSTDGPU_KERNEL(ExecuteSequences128                      ,   L"Execute Sequences 128")                                               \
     ZSTDGPU_KERNEL(ExecuteSequences64                       ,   L"Execute Sequences 64")                                                \
     ZSTDGPU_KERNEL(ExecuteSequences32                       ,   L"Execute Sequences 32")                                                \
@@ -577,6 +577,7 @@ ZSTDGPU_ENUM(Status) zstdgpu_CreatePersistentContext(zstdgpu_PersistentContext *
 #else
         D3D12_FEATURE_DATA_D3D12_OPTIONS1 featureOptions1;
         D3D12AID_CHECK(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, ZSTDGPU_WARN_DISABLE_MSVC(6001, &featureOptions1), sizeof(featureOptions1)));
+        ZSTDGPU_ASSERT(featureOptions1.Int64ShaderOps); // 64-bit integer shader ops required for Forward_BitBuffer
 
         const LUID luid = device->GetAdapterLuid();
 
@@ -907,6 +908,8 @@ ZSTDGPU_ENUM(Status) zstdgpu_GetGpuMemoryRequirement(uint32_t *outDefaultHeapByt
             req->zstdRawByteCount  = CNTRS(BlocksBytes_RAW);
             req->zstdRleByteCount  = CNTRS(BlocksBytes_RLE);
 
+            ZSTDGPU_ASSERT(0 != cntRaw + cntRle + cntCmp);
+
             zstdgpu_ResourceInfo_Stage_1_Init(&req->resInfo, cntRaw, cntRle, cntCmp);
 
         }
@@ -1074,6 +1077,8 @@ ZSTDGPU_ENUM(Status) zstdgpu_SubmitWithInteralMemory(zstdgpu_PerRequestContext r
             req->zstdCmpBlockCount = cntCmp;
             req->zstdRawByteCount = CNTRS(BlocksBytes_RAW);
             req->zstdRleByteCount = CNTRS(BlocksBytes_RLE);
+
+            ZSTDGPU_ASSERT(0 != cntRaw + cntRle + cntCmp);
 
             zstdgpu_ResourceInfo_Stage_1_Init(&req->resInfo, cntRaw, cntRle, cntCmp);
         }
@@ -1834,9 +1839,7 @@ void zstdgpu_SubmitStage2(zstdgpu_PerRequestContext req, ID3D12GraphicsCommandLi
     if (req->zstdCmpBlockCount > 0)
     {
         PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, L"[Decompress Sequences]");
-        d3d12aid_ComputeRsPs_Set(&req->DecompressSequences, cmdList);
-        cmdList->SetDescriptorHeaps(1, &req->srts.heap);
-        cmdList->SetComputeRootDescriptorTable(0, req->srts.DecompressSequencesGpuHandle);
+        BIND_RS_PS_SRT(DecompressSequences);
 
         const uint32_t tgCount = ZSTDGPU_TG_COUNT(req->zstdSeqStreamCount, 1); /** 1 - because we choose _LdsFseCache shader that process 1 stream per threadgroup */
         ZSTDGPU_KERNEL_SCOPE(DecompressSequences, cmdList,

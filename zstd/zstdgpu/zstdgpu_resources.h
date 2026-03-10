@@ -241,8 +241,7 @@ static void zstdgpu_ResourceInfo_InitZero(zstdgpu_ResourceInfo *outInfo)
     #undef  ZSTDGPU_BUFFER
 }
 
-#define ZSTDGPU_ALIGN(offset, aligment) ((offset) + (aligment) - 1) & ~((aligment) - 1)
-#define ZSTDGPU_ALIGN_DEFAULT(offset) ZSTDGPU_ALIGN(offset, 0x10000)
+#define ZSTDGPU_ALIGN_DEFAULT(offset) zstdgpu_AlignUp(offset, 0x10000)
 
 // initialize the counts, sizes and offsets
 #define ZSTDGPU_BUFFER(type, name)                                      \
@@ -607,6 +606,10 @@ static void zstdgpu_ResourceDataGpu_Init_GpuOnly(zstdgpu_ResourceDataGpu *outRes
     {                                                                           \
         ZSTDGPU_CREATE_BUFFER(name, cpu2Gpu, GENERIC_READ, UPLOAD);             \
         outResData->cpu2Gpu.name##Cpu = (type *)d3d12aid_Resource_MapWrite(outResData->cpu2Gpu.name);\
+    }                                                                           \
+    else if (NULL == outResData->cpu2Gpu.name##Cpu)                             \
+    {                                                                           \
+        outResData->cpu2Gpu.name##Cpu = NULL;                                   \
     }
 
 static void zstdgpu_ResourceDataGpu_Init_CpuToGpu(zstdgpu_ResourceDataGpu *outResData, const zstdgpu_ResourceInfo *info, ID3D12Device *device, uint32_t stageIndex)
@@ -660,6 +663,10 @@ static void zstdgpu_ResourceDataGpu_Init_CpuToGpu(zstdgpu_ResourceDataGpu *outRe
     {                                                                                       \
         ZSTDGPU_CREATE_BUFFER(name, gpu2Cpu, COPY_DEST, READBACK);                          \
         outResData->gpu2Cpu.name##Cpu = (const type *)d3d12aid_Resource_MapRead(outResData->gpu2Cpu.name);  \
+    }                                                                                       \
+    else if (NULL == outResData->gpu2Cpu.name)                                              \
+    {                                                                                       \
+        outResData->gpu2Cpu.name##Cpu = NULL;                                               \
     }
 
 static void zstdgpu_ResourceDataGpu_Init_GpuToCpu(zstdgpu_ResourceDataGpu *outResData, const zstdgpu_ResourceInfo *info, ID3D12Device *device, uint32_t stageIndex)
@@ -779,7 +786,7 @@ static void *alloc(uint32_t size)
     GetNativeSystemInfo(&systemInfo);
     const DWORD pageSize = systemInfo.dwPageSize;
 
-    const uint32_t allocatedSize = ZSTDGPU_TG_MULTIPLE(size, pageSize) + pageSize;
+    const uint32_t allocatedSize = zstdgpu_AlignUp(size, pageSize) + pageSize;
     void *memory = VirtualAlloc(NULL, allocatedSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     SIZE_T rsize = VirtualQuery(memory, &info, sizeof(info));
     ZSTDGPU_ASSERT(0 != rsize);

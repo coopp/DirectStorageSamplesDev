@@ -308,6 +308,7 @@ struct ZstdDecompressionTests : public ::testing::Test
             return;
         }
 
+        size_t currentFileIndex = 0;
         size_t totalFiles = zstFiles.size();
         size_t filesFailed = 0;
         std::vector<std::filesystem::path> filePathsWithNoFrameData;
@@ -321,6 +322,12 @@ struct ZstdDecompressionTests : public ::testing::Test
             try
             {
                 auto zstFileData = LoadZstFile(zstfile);
+                GTEST_LOG_(INFO) << "Testing file " << (currentFileIndex + 1) << " of " << totalFiles << ": ("
+                                 << zstFileData.ReferenceDecompressedFrames.size() << " frame(s)) '" << zstfile.string() << "', "
+                                 << zstFileData.TotalFramesSizeBytes << " bytes(compressed), "
+                                 << zstFileData.FrameOffsetsAndSizes.UnCompressedFramesMemorySizeInBytes << " bytes(uncompressed).";
+
+                currentFileIndex++;
                 if (!zstFileData.FrameOffsetsAndSizes.UnCompressedFramesMemorySizeInBytes)
                 {
                     filePathsWithNoFrameData.push_back(zstfile);

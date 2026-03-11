@@ -470,7 +470,7 @@ int wmain(int argc, wchar_t* argv[])
 
         CustomDecompression customDecompression(factory.get(), std::thread::hardware_concurrency());
 
-        // Validation pass — runs once before benchmarking
+        // Validation pass - runs once before benchmarking
         if (bValidate)
         {
             uint32_t validationStagingMiB = 1;
